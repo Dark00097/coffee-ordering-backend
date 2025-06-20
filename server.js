@@ -12,15 +12,15 @@ const validate = require('./middleware/validate');
 const app = express();
 const server = http.createServer(app);
 
-// Configure CORS for production
 const allowedOrigins = [
   process.env.CLIENT_URL || 'http://localhost:5173',
   'https://coffee-ordering-frontend-production.up.railway.app',
+  /^http:\/\/192\.168\.1\.\d{1,3}:5173$/
 ];
 
 const corsOptions = {
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
+    if (!origin || allowedOrigins.some(allowed => typeof allowed === 'string' ? allowed === origin : allowed.test(origin))) {
       callback(null, true);
     } else {
       logger.warn('CORS blocked', { origin });
@@ -29,27 +29,19 @@ const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-session-id', 'Cookie'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-session-id']
 };
 
 app.use(cors(corsOptions));
-
-// Handle CORS preflight requests
 app.options('*', cors(corsOptions));
 
-const io = new Server(server, { 
-  cors: {
-    origin: allowedOrigins,
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  }
-});
+const io = new Server(server, { cors: corsOptions });
 
 const sessionStore = new MySQLStore({
   host: process.env.DB_HOST || 'mysql.railway.internal',
   port: parseInt(process.env.DB_PORT, 10) || 3306,
   user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || 'fclJLNegMkdavkJQkQjrbUTLYWmwFSYQ',
+  password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'railway',
   clearExpired: true,
   checkExpirationInterval: 900000,
@@ -58,17 +50,11 @@ const sessionStore = new MySQLStore({
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname, 'public'), { 
-  setHeaders: (res) => {
-    res.set('Access-Control-Allow-Origin', allowedOrigins[1]);
-    res.set('Access-Control-Allow-Credentials', 'true');
-  }
-}));
+app.use(express.static(path.join(__dirname, 'public')));
 
-const sessionSecret = process.env.SESSION_SECRET;
-if (!sessionSecret) {
-  logger.error('SESSION_SECRET is not set in the environment');
-  process.exit(1);
+const sessionSecret = process.env.SESSION_SECRET || 'fallback_secret_key_1234567890';
+if (sessionSecret === 'fallback_secret_key_1234567890') {
+  logger.warn('Using fallback SESSION_SECRET. Set a secure SESSION_SECRET in environment variables.');
 }
 
 app.use(
@@ -94,48 +80,11 @@ app.use((req, res, next) => {
     user: req.session.user ? req.session.user.id : 'anonymous',
     sessionID: req.sessionID,
     origin: req.headers.origin,
-    cookies: req.cookies,
   });
   next();
 });
 
-// Authentication middleware
-const authMiddleware = (req, res, next) => {
-  if (!req.session.user) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-  next();
-};
-
-// Admin middleware
-const adminMiddleware = (req, res, next) => {
-  if (!req.session.user || req.session.user.role !== 'admin') {
-    return res.status(403).json({ error: 'Forbidden' });
-  }
-  next();
-};
-
-// Public routes (no auth required)
-app.use('/api/login', (req, res, next) => next());
-app.use('/api/check-auth', (req, res, next) => next());
-app.use('/api/menu-items', (req, res, next) => next());
-app.use('/api/categories', (req, res, next) => next());
-app.use('/api/banners', (req, res, next) => next());
-app.use('/api/breakfasts', (req, res, next) => next());
-app.use('/api/promotions', (req, res, next) => next());
-
-// Apply auth middleware to protected routes
-app.use('/api', authMiddleware);
-
-// Apply admin middleware to admin-only routes
-app.use('/api/analytics-overview', adminMiddleware);
-app.use('/api/notifications', adminMiddleware);
-app.use('/api/users', adminMiddleware);
-app.use('/api/tables', adminMiddleware);
-app.use('/api/orders', adminMiddleware);
-app.use('/api/reservations', adminMiddleware);
-
-// Route imports
+// Routes
 const authRoutes = require('./routes/authRoutes');
 const menuRoutes = require('./routes/menuRoutes');
 const orderRoutes = require('./routes/orderRoutes')(io);
@@ -156,6 +105,7 @@ app.use('/api', notificationRoutes);
 app.use('/api', bannerRoutes);
 app.use('/api', breakfastRoutes);
 
+// Apply validations middleware
 app.use('/api', (req, res, next) => {
   if (
     req.method === 'POST' ||
@@ -216,10 +166,10 @@ app.use((err, req, res, next) => {
     user: req.session.user ? req.session.user.id : 'anonymous',
     origin: req.headers.origin,
   });
-  res.status(500).json({ error: err.message || 'Internal server error' });
+  res.status(500).json({ error: 'Internal server error' });
 });
 
-app.use((req, res) => {
+app.use((req, res, => {
   logger.warn('Route not found', {
     method: req.method,
     url: req.url,
@@ -259,11 +209,11 @@ const PORT = process.env.PORT || 5000;
 server.listen(PORT, '0.0.0.0', async () => {
   try {
     const connection = await db.getConnection();
-    await connection.ping(); // Test database connectivity
+    await connection.ping();
     connection.release();
     logger.info(`Server running on port ${PORT}`);
   } catch (error) {
-    logger.error('Failed to connect to database', { error: error.message, stack: error.stack });
+    logger.error('Failed to connect to database', { error: error.message });
     process.exit(1);
   }
 });
@@ -274,5 +224,5 @@ process.on('uncaughtException', (err) => {
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  logger.error('Unhandled Rejection', { reason: reason.message || reason, stack: (reason.stack || '').toString() });
+  logger.error('Unhandled Rejection', { reason: reason.message || reason, promise });
 });
