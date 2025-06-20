@@ -12,15 +12,16 @@ const validate = require('./middleware/validate');
 const app = express();
 const server = http.createServer(app);
 
+app.set('trust proxy', 1); // For Railway's proxy
+
 const allowedOrigins = [
-  process.env.CLIENT_URL || 'http://localhost:5173',
-  'https://coffee-ordering-frontend-production.up.railway.app',
-  /^http:\/\/192\.168\.1\.\d{1,3}:5173$/
+  process.env.CLIENT_URL || 'https://coffee-ordering-frontend-production.up.railway.app',
+  'http://localhost:5173',
 ];
 
 const corsOptions = {
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.some(allowed => typeof allowed === 'string' ? allowed === origin : allowed.test(origin))) {
+    if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
       logger.warn('CORS blocked', { origin });
@@ -29,20 +30,19 @@ const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-session-id']
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-session-id'],
 };
 
 app.use(cors(corsOptions));
-app.options('*', cors(corsOptions));
 
 const io = new Server(server, { cors: corsOptions });
 
 const sessionStore = new MySQLStore({
-  host: process.env.DB_HOST || 'mysql.railway.internal',
-  port: parseInt(process.env.DB_PORT, 10) || 3306,
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'railway',
+  host: process.env.DB_HOST,
+  port: process.env.DB_PORT,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
   clearExpired: true,
   checkExpirationInterval: 900000,
   expiration: 86400000,
@@ -52,23 +52,18 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-const sessionSecret = process.env.SESSION_SECRET || 'fallback_secret_key_1234567890';
-if (sessionSecret === 'fallback_secret_key_1234567890') {
-  logger.warn('Using fallback SESSION_SECRET. Set a secure SESSION_SECRET in environment variables.');
-}
-
 app.use(
   session({
     key: 'session_cookie_name',
-    secret: sessionSecret,
+    secret: process.env.SESSION_SECRET,
     store: sessionStore,
     resave: false,
     saveUninitialized: false,
     cookie: {
       maxAge: 86400000,
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      secure: true, // Always secure for Railway
+      sameSite: 'none',
     },
   })
 );
@@ -169,7 +164,7 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
-app.use((req, res, => {
+app.use((req, res) => {
   logger.warn('Route not found', {
     method: req.method,
     url: req.url,
@@ -205,12 +200,10 @@ io.on('connection', (socket) => {
   });
 });
 
-const PORT = process.env.PORT || 5000;
-server.listen(PORT, '0.0.0.0', async () => {
+const PORT = process.env.PORT || 3000; // Railway defaults to 3000
+server.listen(PORT, async () => {
   try {
-    const connection = await db.getConnection();
-    await connection.ping();
-    connection.release();
+    await db; // Wait for DB pool initialization
     logger.info(`Server running on port ${PORT}`);
   } catch (error) {
     logger.error('Failed to connect to database', { error: error.message });
