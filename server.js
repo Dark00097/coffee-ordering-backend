@@ -15,6 +15,7 @@ const server = http.createServer(app);
 // Configure CORS for production
 const allowedOrigins = [
   process.env.CLIENT_URL || 'http://localhost:5173',
+  'https://coffee-ordering-frontend-production.up.railway.app', // Explicitly allow the deployed front-end
 ];
 
 const corsOptions = {
