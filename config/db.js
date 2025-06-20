@@ -4,37 +4,41 @@ const logger = require('../logger');
 
 let pool;
 
-try {
-  pool = mysql.createPool({
-    host: process.env.DB_HOST || 'mysql.railway.internal',
-    user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_NAME || 'railway',
-    port: parseInt(process.env.DB_PORT, 10) || 3306,
-    waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 0,
-  });
-
-  pool.getConnection()
-    .then(() => logger.info('Database connected successfully'))
-    .catch((err) => {
-      logger.error('Database connection failed', {
-        error: err.message,
+async function initializePool(retries = 5, delay = 3000) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      pool = mysql.createPool({
         host: process.env.DB_HOST,
         user: process.env.DB_USER,
+        password: process.env.DB_PASSWORD,
         database: process.env.DB_NAME,
+        port: process.env.DB_PORT || 3306,
+        waitForConnections: true,
+        connectionLimit: 10,
+        queueLimit: 0,
       });
-      throw err;
-    });
-} catch (err) {
-  logger.error('Error initializing database pool', {
-    error: err.message,
-    host: process.env.DB_HOST,
-    user: process.env.DB_USER,
-    database: process.env.DB_NAME,
-  });
-  throw err;
+
+      await pool.getConnection();
+      logger.info('Database connected successfully');
+      return pool;
+    } catch (err) {
+      logger.error(`Database connection attempt ${attempt} failed`, {
+        error: err.message,
+      });
+      if (attempt === retries) {
+        logger.error('Max retries reached. Database connection failed', {
+          error: err.message,
+        });
+        throw err;
+      }
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
 }
 
-module.exports = pool;
+try {
+  module.exports = initializePool();
+} catch (err) {
+  logger.error('Error initializing database pool', { error: err.message });
+  throw err;
+}
