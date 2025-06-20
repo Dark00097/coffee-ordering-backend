@@ -6,21 +6,26 @@ const bcrypt = require('bcrypt');
 
 const checkAdmin = async (userId) => {
   if (!userId) return false;
-  const [rows] = await db.query('SELECT role FROM users WHERE id = ?', [userId]);
-  return rows.length > 0 && rows[0].role === 'admin';
+  try {
+    const [rows] = await db.query('SELECT role FROM users WHERE id = ?', [userId]);
+    return rows.length > 0 && rows[0].role === 'admin';
+  } catch (error) {
+    logger.error('Error checking admin role', { error: error.message, userId });
+    return false;
+  }
 };
 
 // Check authentication
 router.get('/check-auth', async (req, res) => {
   try {
     if (!req.session.user) {
-      logger.info('No session user found', { path: req.path });
+      logger.info('No session user found', { path: req.path, sessionID: req.sessionID });
       return res.status(401).json({ error: 'Not authenticated' });
     }
-    logger.info('Session user found', { user: req.session.user });
-    res.json(req.session.user);
+    logger.info('Session user found', { user: req.session.user, sessionID: req.sessionID });
+    res.json({ authenticated: true, user: req.session.user });
   } catch (error) {
-    logger.error('Error checking auth', { error: error.message });
+    logger.error('Error checking auth', { error: error.message, sessionID: req.sessionID });
     res.status(500).json({ error: 'Failed to check auth' });
   }
 });
@@ -42,7 +47,7 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
     req.session.user = { id: user.id, email: user.email, role: user.role };
-    logger.info('User logged in successfully', { userId: user.id, email: user.email, role: user.role });
+    logger.info('User logged in successfully', { userId: user.id, email: user.email, role: user.role, sessionID: req.sessionID });
     res.json({ message: 'Logged in', user: req.session.user });
   } catch (error) {
     logger.error('Error during login', { error: error.message, email });
@@ -52,14 +57,24 @@ router.post('/login', async (req, res) => {
 
 // User logout
 router.post('/logout', (req, res) => {
-  req.session.destroy((err) => {
-    if (err) {
-      logger.error('Error destroying session', { error: err.message });
-      return res.status(500).json({ error: 'Failed to logout' });
-    }
-    logger.info('User logged out');
-    res.json({ message: 'Logged out' });
-  });
+  try {
+    req.session.destroy((err) => {
+      if (err) {
+        logger.error('Error destroying session', { error: err.message, sessionID: req.sessionID });
+        return res.status(500).json({ error: 'Failed to logout' });
+      }
+      res.clearCookie('session_cookie_name', {
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+        path: '/',
+      });
+      logger.info('User logged out', { sessionID: req.sessionID });
+      res.json({ message: 'Logged out' });
+    });
+  } catch (error) {
+    logger.error('Logout error', { error: error.message, sessionID: req.sessionID });
+    res.status(500).json({ error: 'Failed to logout' });
+  }
 });
 
 // Create staff
@@ -76,10 +91,10 @@ router.post('/staff', async (req, res) => {
     }
     const password_hash = await bcrypt.hash(password, 10);
     const [result] = await db.query('INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)', [email, password_hash, role]);
-    logger.info('Server added', { id: result.insertId, email });
+    logger.info('Server added', { id: result.insertId, email, sessionID: req.sessionID });
     res.status(201).json({ message: 'Server added', id: result.insertId });
   } catch (error) {
-    logger.error('Error adding staff', { error: error.message });
+    logger.error('Error adding staff', { error: error.message, sessionID: req.sessionID });
     res.status(500).json({ error: 'Failed to add staff' });
   }
 });
@@ -98,7 +113,7 @@ router.put('/users/:id', async (req, res) => {
       logger.warn('Invalid user ID', { id });
       return res.status(400).json({ error: 'Valid user ID is required' });
     }
-    if (role !== 'server' && role !== 'admin') {
+    if (role && role !== 'server' && role !== 'admin') {
       logger.warn('Invalid role', { role });
       return res.status(400).json({ error: 'Invalid role' });
     }
@@ -132,10 +147,10 @@ router.put('/users/:id', async (req, res) => {
       logger.warn('No rows updated', { id: userId });
       return res.status(404).json({ error: 'User not found' });
     }
-    logger.info('User updated', { id: userId, email });
+    logger.info('User updated', { id: userId, email, sessionID: req.sessionID });
     res.json({ message: 'User updated' });
   } catch (error) {
-    logger.error('Error updating user', { error: error.message });
+    logger.error('Error updating user', { error: error.message, sessionID: req.sessionID });
     res.status(500).json({ error: 'Failed to update user' });
   }
 });
@@ -164,10 +179,10 @@ router.delete('/users/:id', async (req, res) => {
       logger.warn('No rows deleted', { id: userId });
       return res.status(404).json({ error: 'User not found' });
     }
-    logger.info('User deleted', { id: userId });
+    logger.info('User deleted', { id: userId, sessionID: req.sessionID });
     res.json({ message: 'User deleted' });
   } catch (error) {
-    logger.error('Error deleting user', { error: error.message, id });
+    logger.error('Error deleting user', { error: error.message, id, sessionID: req.sessionID });
     res.status(500).json({ error: 'Failed to delete user' });
   }
 });
@@ -180,10 +195,10 @@ router.get('/users', async (req, res) => {
       return res.status(403).json({ error: 'Admin access required' });
     }
     const [rows] = await db.query('SELECT id, email, role, created_at FROM users');
-    logger.info('Users fetched successfully', { count: rows.length });
+    logger.info('Users fetched successfully', { count: rows.length, sessionID: req.sessionID });
     res.json(rows);
   } catch (error) {
-    logger.error('Error fetching users', { error: error.message });
+    logger.error('Error fetching users', { error: error.message, sessionID: req.sessionID });
     res.status(500).json({ error: 'Failed to fetch users' });
   }
 });
@@ -206,10 +221,10 @@ router.get('/users/:id', async (req, res) => {
       logger.warn('User not found', { id: userId });
       return res.status(404).json({ error: 'User not found' });
     }
-    logger.info('User fetched', { id: userId });
+    logger.info('User fetched', { id: userId, sessionID: req.sessionID });
     res.json(rows[0]);
   } catch (error) {
-    logger.error('Error fetching user', { error: error.message, id });
+    logger.error('Error fetching user', { error: error.message, id, sessionID: req.sessionID });
     res.status(500).json({ error: 'Failed to fetch user' });
   }
 });
