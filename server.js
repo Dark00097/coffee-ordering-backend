@@ -15,7 +15,6 @@ const server = http.createServer(app);
 // Configure CORS for production
 const allowedOrigins = [
   process.env.CLIENT_URL || 'http://localhost:5173',
-  'https://yourapp.vercel.app', // Replace with your Vercel domain after deployment
 ];
 
 const corsOptions = {
@@ -34,9 +33,14 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
-const io = new Server(server, { cors: corsOptions });
+const io = new Server(server, { 
+  cors: {
+    origin: allowedOrigins,
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  }
+});
 
-// Ensure session store uses environment variables with fallbacks
 const sessionStore = new MySQLStore({
   host: process.env.DB_HOST || 'mysql.railway.internal',
   port: parseInt(process.env.DB_PORT, 10) || 3306,
@@ -52,7 +56,6 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Ensure session secret is always provided
 const sessionSecret = process.env.SESSION_SECRET;
 if (!sessionSecret) {
   logger.error('SESSION_SECRET is not set in the environment');
@@ -86,7 +89,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// Routes
 const authRoutes = require('./routes/authRoutes');
 const menuRoutes = require('./routes/menuRoutes');
 const orderRoutes = require('./routes/orderRoutes')(io);
@@ -107,7 +109,6 @@ app.use('/api', notificationRoutes);
 app.use('/api', bannerRoutes);
 app.use('/api', breakfastRoutes);
 
-// Apply validations middleware
 app.use('/api', (req, res, next) => {
   if (
     req.method === 'POST' ||
