@@ -99,11 +99,11 @@ app.use((req, res, next) => {
 // Public routes (no auth required)
 app.use('/api/login', (req, res, next) => next());
 app.use('/api/check-auth', (req, res, next) => next());
-app.use('/api/menu-items', (req, res, next) => next()); // Public menu access
-app.use('/api/categories', (req, res, next) => next()); // Public category access
-app.use('/api/banners', (req, res, next) => next()); // Public banners
-app.use('/api/breakfasts', (req, res, next) => next()); // Public breakfasts
-app.use('/api/promotions', (req, res, next) => next()); // Public promotions
+app.use('/api/menu-items', (req, res, next) => next());
+app.use('/api/categories', (req, res, next) => next());
+app.use('/api/banners', (req, res, next) => next());
+app.use('/api/breakfasts', (req, res, next) => next());
+app.use('/api/promotions', (req, res, next) => next());
 
 // Apply auth middleware to protected routes
 app.use('/api', authMiddleware);
@@ -242,7 +242,7 @@ server.listen(PORT, '0.0.0.0', async () => {
     await db.getConnection();
     logger.info(`Server running on port ${PORT}`);
   } catch (error) {
-    logger.error('Failed to connect to database', { error: error.message });
+    logger.error('Failed to connect to database', { error: error.message, stack: error.stack });
     process.exit(1);
   }
 });
@@ -253,5 +253,5 @@ process.on('uncaughtException', (err) => {
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  logger.error('Unhandled Rejection', { reason: reason.message || reason, promise });
+  logger.error('Unhandled Rejection', { reason: reason.message || reason, promise, stack: (reason.stack || '').toString() });
 });
