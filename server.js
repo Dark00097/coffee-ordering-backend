@@ -34,6 +34,9 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
+// Handle CORS preflight requests
+app.options('*', cors(corsOptions));
+
 const io = new Server(server, { 
   cors: {
     origin: allowedOrigins,
@@ -95,6 +98,22 @@ app.use((req, res, next) => {
   });
   next();
 });
+
+// Authentication middleware
+const authMiddleware = (req, res, next) => {
+  if (!req.session.user) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  next();
+};
+
+// Admin middleware
+const adminMiddleware = (req, res, next) => {
+  if (!req.session.user || req.session.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  next();
+};
 
 // Public routes (no auth required)
 app.use('/api/login', (req, res, next) => next());
@@ -239,7 +258,9 @@ io.on('connection', (socket) => {
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, '0.0.0.0', async () => {
   try {
-    await db.getConnection();
+    const connection = await db.getConnection();
+    await connection.ping(); // Test database connectivity
+    connection.release();
     logger.info(`Server running on port ${PORT}`);
   } catch (error) {
     logger.error('Failed to connect to database', { error: error.message, stack: error.stack });
@@ -253,5 +274,5 @@ process.on('uncaughtException', (err) => {
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  logger.error('Unhandled Rejection', { reason: reason.message || reason, promise, stack: (reason.stack || '').toString() });
+  logger.error('Unhandled Rejection', { reason: reason.message || reason, stack: (reason.stack || '').toString() });
 });
