@@ -36,12 +36,13 @@ app.use(cors(corsOptions));
 
 const io = new Server(server, { cors: corsOptions });
 
+// Ensure session store uses environment variables with fallbacks
 const sessionStore = new MySQLStore({
-  host: process.env.DB_HOST,
-  port: process.env.DB_PORT || 3306,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
+  host: process.env.DB_HOST || 'mysql.railway.internal',
+  port: parseInt(process.env.DB_PORT, 10) || 3306,
+  user: process.env.DB_USER || 'root',
+  password: process.env.DB_PASSWORD || 'fclJLNegMkdavkJQkQjrbUTLYWmwFSYQ',
+  database: process.env.DB_NAME || 'railway',
   clearExpired: true,
   checkExpirationInterval: 900000,
   expiration: 86400000,
@@ -51,10 +52,17 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Ensure session secret is always provided
+const sessionSecret = process.env.SESSION_SECRET;
+if (!sessionSecret) {
+  logger.error('SESSION_SECRET is not set in the environment');
+  process.exit(1);
+}
+
 app.use(
   session({
     key: 'session_cookie_name',
-    secret: process.env.SESSION_SECRET,
+    secret: sessionSecret,
     store: sessionStore,
     resave: false,
     saveUninitialized: false,
