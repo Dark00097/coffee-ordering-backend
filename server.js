@@ -15,7 +15,7 @@ const server = http.createServer(app);
 // Configure CORS for production
 const allowedOrigins = [
   process.env.CLIENT_URL || 'http://localhost:5173',
-  'https://coffee-ordering-frontend-production.up.railway.app', // Explicitly allow the deployed front-end
+  'https://coffee-ordering-frontend-production.up.railway.app',
 ];
 
 const corsOptions = {
@@ -29,7 +29,7 @@ const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-session-id'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-session-id', 'Cookie'],
 };
 
 app.use(cors(corsOptions));
@@ -55,7 +55,12 @@ const sessionStore = new MySQLStore({
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), { 
+  setHeaders: (res) => {
+    res.set('Access-Control-Allow-Origin', allowedOrigins[1]); // Allow deployed front-end
+    res.set('Access-Control-Allow-Credentials', 'true');
+  }
+}));
 
 const sessionSecret = process.env.SESSION_SECRET;
 if (!sessionSecret) {
@@ -86,9 +91,32 @@ app.use((req, res, next) => {
     user: req.session.user ? req.session.user.id : 'anonymous',
     sessionID: req.sessionID,
     origin: req.headers.origin,
+    cookies: req.cookies,
   });
   next();
 });
+
+// Authentication middleware
+const authMiddleware = (req, res, next) => {
+  if (!req.session.user) {
+    logger.warn('Authentication failed', { sessionID: req.sessionID });
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+  next();
+};
+
+// Admin middleware
+const adminMiddleware = (req, res, next) => {
+  if (!req.session.user || req.session.user.role !== 'admin') {
+    logger.warn('Admin access denied', { userId: req.session.user?.id, role: req.session.user?.role });
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  next();
+};
+
+app.use('/api', authMiddleware); // Apply to all API routes
+app.use('/api/analytics-overview', adminMiddleware);
+app.use('/api/notifications', adminMiddleware);
 
 const authRoutes = require('./routes/authRoutes');
 const menuRoutes = require('./routes/menuRoutes');
@@ -170,7 +198,7 @@ app.use((err, req, res, next) => {
     user: req.session.user ? req.session.user.id : 'anonymous',
     origin: req.headers.origin,
   });
-  res.status(500).json({ error: 'Internal server error' });
+  res.status(500).json({ error: err.message || 'Internal server error' });
 });
 
 app.use((req, res) => {
