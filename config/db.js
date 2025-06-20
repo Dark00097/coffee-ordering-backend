@@ -5,17 +5,12 @@ const logger = require('../logger');
 let pool;
 
 try {
-  const dbUrl = process.env.MYSQL_PUBLIC_URL || 'mysql://root:fclJLNegMkdavkJQkQjrbUTLYWmwFSYQ@caboose.proxy.rlwy.net:29085/railway';
-  const { hostname: host, username: user, password, pathname } = new URL(dbUrl);
-  const database = pathname.replace('/', '');
-  const port = parseInt(dbUrl.split(':')[4], 10) || 29085;
-
   pool = mysql.createPool({
-    host: host,
-    user: user,
-    password: password.split('@')[0],
-    database: database,
-    port: port,
+    host: process.env.DB_HOST || 'mysql.railway.internal',
+    user: process.env.DB_USER || 'root',
+    password: process.env.DB_PASSWORD || '',
+    database: process.env.DB_NAME || 'railway',
+    port: parseInt(process.env.DB_PORT, 10) || 3306,
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,
@@ -26,18 +21,18 @@ try {
     .catch((err) => {
       logger.error('Database connection failed', {
         error: err.message,
-        host: host,
-        user: user,
-        database: database,
+        host: process.env.DB_HOST,
+        user: process.env.DB_USER,
+        database: process.env.DB_NAME,
       });
       throw err;
     });
 } catch (err) {
   logger.error('Error initializing database pool', {
     error: err.message,
-    host: host || 'caboose.proxy.rlwy.net',
-    user: user || 'root',
-    database: database || 'railway',
+    host: process.env.DB_HOST,
+    user: process.env.DB_USER,
+    database: process.env.DB_NAME,
   });
   throw err;
 }
