@@ -57,7 +57,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public'), { 
   setHeaders: (res) => {
-    res.set('Access-Control-Allow-Origin', allowedOrigins[1]); // Allow deployed front-end
+    res.set('Access-Control-Allow-Origin', allowedOrigins[1]);
     res.set('Access-Control-Allow-Credentials', 'true');
   }
 }));
@@ -96,28 +96,27 @@ app.use((req, res, next) => {
   next();
 });
 
-// Authentication middleware
-const authMiddleware = (req, res, next) => {
-  if (!req.session.user) {
-    logger.warn('Authentication failed', { sessionID: req.sessionID });
-    return res.status(401).json({ error: 'Not authenticated' });
-  }
-  next();
-};
+// Public routes (no auth required)
+app.use('/api/login', (req, res, next) => next());
+app.use('/api/check-auth', (req, res, next) => next());
+app.use('/api/menu-items', (req, res, next) => next()); // Public menu access
+app.use('/api/categories', (req, res, next) => next()); // Public category access
+app.use('/api/banners', (req, res, next) => next()); // Public banners
+app.use('/api/breakfasts', (req, res, next) => next()); // Public breakfasts
+app.use('/api/promotions', (req, res, next) => next()); // Public promotions
 
-// Admin middleware
-const adminMiddleware = (req, res, next) => {
-  if (!req.session.user || req.session.user.role !== 'admin') {
-    logger.warn('Admin access denied', { userId: req.session.user?.id, role: req.session.user?.role });
-    return res.status(403).json({ error: 'Admin access required' });
-  }
-  next();
-};
+// Apply auth middleware to protected routes
+app.use('/api', authMiddleware);
 
-app.use('/api', authMiddleware); // Apply to all API routes
+// Apply admin middleware to admin-only routes
 app.use('/api/analytics-overview', adminMiddleware);
 app.use('/api/notifications', adminMiddleware);
+app.use('/api/users', adminMiddleware);
+app.use('/api/tables', adminMiddleware);
+app.use('/api/orders', adminMiddleware);
+app.use('/api/reservations', adminMiddleware);
 
+// Route imports
 const authRoutes = require('./routes/authRoutes');
 const menuRoutes = require('./routes/menuRoutes');
 const orderRoutes = require('./routes/orderRoutes')(io);
